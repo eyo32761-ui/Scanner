@@ -67,6 +67,8 @@ fun CameraScannerView(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     var lastScannedCode by remember { mutableStateOf<String?>(null) }
     var lastScanTime by remember { mutableStateOf(0L) }
 
@@ -102,8 +104,65 @@ fun CameraScannerView(
         }
     }
 
-    DisposableEffect(Unit) {
+    // Rebind camera whenever front/back camera changes or preview view becomes available
+    LaunchedEffect(isFrontCamera, previewViewRef, lifecycleOwner) {
+        val previewView = previewViewRef ?: return@LaunchedEffect
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                cameraProviderRef = cameraProvider
+                cameraProvider.unbindAll()
+
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                    processImageProxy(
+                        barcodeScanner = barcodeScanner,
+                        imageProxy = imageProxy,
+                        continuousScan = continuousScan,
+                        scanDelayMs = scanDelayMs,
+                        getLastCode = { lastScannedCode },
+                        getLastTime = { lastScanTime },
+                        onCodeDetected = { code, format ->
+                            lastScannedCode = code
+                            lastScanTime = System.currentTimeMillis()
+                            onBarcodeDetected(code, format)
+                        }
+                    )
+                }
+
+                val cameraSelector = if (isFrontCamera) {
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                } else {
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                }
+
+                camera = cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageAnalysis
+                )
+            } catch (e: Exception) {
+                Log.e("CameraScannerView", "Use case binding failed", e)
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    DisposableEffect(lifecycleOwner) {
         onDispose {
+            try {
+                cameraProviderRef?.unbindAll()
+            } catch (e: Exception) {
+                Log.e("CameraScannerView", "Error unbinding camera", e)
+            }
             cameraExecutor.shutdown()
             try {
                 barcodeScanner.close()
@@ -117,61 +176,12 @@ fun CameraScannerView(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                val previewView = PreviewView(ctx).apply {
+                PreviewView(ctx).apply {
+                    // Use COMPATIBLE (TextureView) to prevent SurfaceView buffer queue abandonment
+                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     scaleType = PreviewView.ScaleType.FILL_CENTER
+                    previewViewRef = this
                 }
-
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-
-                    val imageAnalysis = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-
-                    imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                        processImageProxy(
-                            barcodeScanner = barcodeScanner,
-                            imageProxy = imageProxy,
-                            continuousScan = continuousScan,
-                            scanDelayMs = scanDelayMs,
-                            getLastCode = { lastScannedCode },
-                            getLastTime = { lastScanTime },
-                            onCodeDetected = { code, format ->
-                                lastScannedCode = code
-                                lastScanTime = System.currentTimeMillis()
-                                onBarcodeDetected(code, format)
-                            }
-                        )
-                    }
-
-                    val cameraSelector = if (isFrontCamera) {
-                        CameraSelector.DEFAULT_FRONT_CAMERA
-                    } else {
-                        CameraSelector.DEFAULT_BACK_CAMERA
-                    }
-
-                    try {
-                        cameraProvider.unbindAll()
-                        camera = cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageAnalysis
-                        )
-                    } catch (e: Exception) {
-                        Log.e("CameraScannerView", "Use case binding failed", e)
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
-
-                previewView
-            },
-            update = {
-                // Handle updates if needed
             }
         )
 
