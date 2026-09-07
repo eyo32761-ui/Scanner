@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">ScanResi</string>
+    <string name="title_scanner">Pemindai</string>
+    <string name="title_history">Riwayat</string>
+    <string name="title_settings">Pengaturan</string>
+    <string name="export_csv">Ekspor CSV</string>
+    <string name="duplicate_warning">Kode Duplikat Terdeteksi!</string>
+    <string name="code_copied">Kode disalin ke clipboard</string>
+</resources>
