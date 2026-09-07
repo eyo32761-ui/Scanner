@@ -35,7 +35,8 @@ jobs:
         run: gradle wrapper
 
       - name: Build Debug APK
-        run: .pembungkus
+        run: echo "{markdown content}" >> $GITHUB_STEP_SUMMARY
+
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
