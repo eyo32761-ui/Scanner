@@ -35,7 +35,7 @@ jobs:
         run: gradle wrapper
 
       - name: Build Debug APK
-        run: .pembungkus
+        run: ./pembungkus
 
 
       - name: Upload APK
